@@ -1,14 +1,24 @@
 import Foundation
 
-/// Where the app points its HTTP calls. The Wordflow API has no fixed public
-/// host — the README runs it on `localhost:8080` — so the address is editable
-/// and persisted instead of compiled in.
+/// Where the app points its HTTP calls. It ships pointed at the hosted demo,
+/// and the address stays editable so the same build can run against a local
+/// `make server` or any other deployment.
 enum ServerSettings {
-    static let defaultBaseURLString = "http://localhost:8080"
+    static let defaultBaseURLString = "https://games.tmprl-demo.cloud"
+
+    /// Overrides everything, so the UI tests and the scripts in Tools/ can aim
+    /// the shipping code at a throwaway server without touching what the player
+    /// has saved. Never set in a normal launch.
+    static let overrideEnvironmentKey = "WORDFLOW_BASE_URL"
+
     private static let key = "wordflow.baseURL"
 
     static var storedBaseURLString: String {
-        UserDefaults.standard.string(forKey: key) ?? defaultBaseURLString
+        if let override = ProcessInfo.processInfo.environment[overrideEnvironmentKey],
+           !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return override
+        }
+        return UserDefaults.standard.string(forKey: key) ?? defaultBaseURLString
     }
 
     static var storedBaseURL: URL {

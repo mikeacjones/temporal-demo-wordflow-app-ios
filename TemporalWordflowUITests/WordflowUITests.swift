@@ -27,6 +27,9 @@ final class WordflowUITests: XCTestCase {
             return false
         }
         app = XCUIApplication()
+        // The app ships pointed at the hosted demo; the suite creates players
+        // and completes levels, so it runs against a local server instead.
+        app.launchEnvironment["WORDFLOW_BASE_URL"] = Self.baseURL.absoluteString
         app.launch()
     }
 
@@ -207,6 +210,8 @@ final class WordflowUITests: XCTestCase {
     }
 
     private static let password = "supersecret123"
+    /// Deliberately not `ServerSettings.defaultBaseURLString`: these tests must
+    /// never write to the hosted demo.
     private static let baseURL = URL(string: ProcessInfo.processInfo
         .environment["WORDFLOW_BASE_URL"] ?? "http://localhost:8080")!
 

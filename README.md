@@ -61,28 +61,33 @@ Three places where the port does not copy the stylesheet literally, and why:
 - Xcode 16 or newer — built and tested here with Xcode 27 against the iOS 27
   simulator
 - iOS 17 or newer (uses `@Observable` and the two-parameter `onChange`)
-- A reachable Wordflow API
 
 ## Running it
 
-1. Start the backend from the game repo:
+Open `TemporalWordflow.xcodeproj` and run. It ships pointed at the hosted demo:
 
-   ```bash
-   cd ../temporal-word-game
-   make temporal   # terminal 1
-   make worker     # terminal 2
-   make server     # terminal 3 — serves the API on :8080
-   ```
+```
+https://games.tmprl-demo.cloud
+```
 
-2. Open `TemporalWordflow.xcodeproj` and run on a simulator.
+so there is nothing to start — sign up in the app and you are playing against
+the deployed Workflows, alongside everyone else on that leaderboard.
 
-   The default server address is `http://localhost:8080`, which the simulator
-   shares with the host. On a physical device, tap the gear and enter your Mac's
-   LAN address (for example `http://192.168.1.20:8080`) — `Info.plist` allows
-   local HTTP through `NSAllowsLocalNetworking`, and nothing else.
+To play against a server you are running yourself, start the backend from the
+game repo and change the address under the gear:
 
-   The address is editable in **Settings** and persisted, so the same build can
-   point at a deployed API Gateway URL over HTTPS.
+```bash
+cd ../temporal-word-game
+make temporal   # terminal 1
+make worker     # terminal 2
+make server     # terminal 3 — serves the API on :8080
+```
+
+The simulator shares `localhost` with your Mac; on a physical device use your
+Mac's LAN address (`http://192.168.1.20:8080`). `Info.plist` permits plain HTTP
+only through `NSAllowsLocalNetworking`, so anything off-network has to be
+HTTPS. The address is persisted, and `WORDFLOW_BASE_URL` in the scheme's launch
+environment overrides it — which is how the UI tests keep off the demo host.
 
 ## Layout
 
@@ -119,8 +124,10 @@ xcodebuild -project TemporalWordflow.xcodeproj -scheme TemporalWordflow \
 ```
 
 `TemporalWordflowUITests` is the only place the drag recogniser on the letter
-dial, real hit testing and the phase navigation are exercised for real. Five
-cases, against a live server on `http://localhost:8080` (see below):
+dial, real hit testing and the phase navigation are exercised for real. They
+create players and complete levels, so they launch the app with
+`WORDFLOW_BASE_URL` pointed at a local server rather than the hosted demo —
+start one on `:8080` first (see below). Five cases:
 
 | | |
 | --- | --- |
@@ -173,7 +180,7 @@ python3 Tools/check-pbxproj.py   # validate the hand-written Xcode project
   through one container that the snapshot path can swap for a plain stack.
 
 Every live check creates throwaway players and completes levels, so point them
-at a scratch namespace rather than one you care about:
+at a scratch namespace — never at the demo host, whose leaderboard is public:
 
 ```bash
 cd ../temporal-word-game

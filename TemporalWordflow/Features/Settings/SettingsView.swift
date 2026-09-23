@@ -66,7 +66,8 @@ struct SettingsView: View {
                 // `Text(verbatim:)` so the example URL is not auto-linked.
                 Text(verbatim: invalidAddress
                      ? "That server address is not valid."
-                     : "The API the app talks to. The README runs it on http://localhost:8080.")
+                     : "The API the app talks to. Point it at http://localhost:8080 to play "
+                       + "against a server you are running yourself.")
                     .font(Typography.sans(12))
                     .foregroundStyle(invalidAddress ? Palette.coral : Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
