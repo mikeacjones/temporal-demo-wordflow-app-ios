@@ -160,6 +160,35 @@ actor APIClient {
         try await get("api/leaderboard")
     }
 
+    // MARK: - Kiosk
+
+    /// The kiosk endpoints 404 on a server that is not an event station, which
+    /// is how the app discovers the mode.
+    func kioskStatus() async throws -> KioskStatus {
+        try await get("api/kiosk/status")
+    }
+
+    func startKioskSession(displayName: String, email: String) async throws -> SessionResponse {
+        try await post("api/kiosk/session", body: KioskSessionBody(
+            displayName: displayName,
+            email: email.isEmpty ? nil : email,
+            requestId: Self.requestID()))
+    }
+
+    func kioskNextLevel() async throws -> SessionResponse {
+        try await post("api/kiosk/next-level", body: RequestIDBody(requestId: Self.requestID()))
+    }
+
+    // MARK: - Workflow Explorer
+
+    /// One page of a workflow's sanitized history. `page` is the opaque
+    /// `nextPageToken` from the previous call.
+    func workflowDetail(workflowID: String, page: String? = nil) async throws -> WorkflowDetail {
+        var items = [URLQueryItem(name: "workflowId", value: workflowID)]
+        if let page, !page.isEmpty { items.append(URLQueryItem(name: "historyPage", value: page)) }
+        return try await get("workflows/api/workflow", query: items)
+    }
+
     // MARK: - Temporal UI links
 
     /// Resolves the `Location` of a `/workflow-link` redirect without following
@@ -209,8 +238,10 @@ actor APIClient {
 
     // MARK: - Transport
 
-    private func get<Response: Decodable>(_ path: String) async throws -> Response {
-        try await request(path, method: "GET", body: nil as EmptyBody?)
+    private func get<Response: Decodable>(
+        _ path: String, query: [URLQueryItem] = []
+    ) async throws -> Response {
+        try await request(path, method: "GET", body: nil as EmptyBody?, query: query)
     }
 
     private func post<Body: Encodable, Response: Decodable>(_ path: String, body: Body) async throws -> Response {
@@ -218,9 +249,15 @@ actor APIClient {
     }
 
     private func request<Body: Encodable, Response: Decodable>(
-        _ path: String, method: String, body: Body?
+        _ path: String, method: String, body: Body?, query: [URLQueryItem] = []
     ) async throws -> Response {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        var url = baseURL.appendingPathComponent(path)
+        if !query.isEmpty {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.queryItems = query
+            url = components?.url ?? url
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
@@ -282,6 +319,12 @@ private struct SignUpBody: Encodable {
 }
 
 private struct RequestIDBody: Encodable {
+    var requestId: String
+}
+
+private struct KioskSessionBody: Encodable {
+    var displayName: String
+    var email: String?
     var requestId: String
 }
 

@@ -21,8 +21,16 @@ final class AppStore {
         var level: Int
     }
 
+    /// Whether the server this build is pointed at is a normal deployment or
+    /// an event station. `GET /api/kiosk/status` 404s on a normal one.
+    enum ServerMode: Equatable {
+        case unknown, standard, kiosk
+    }
+
     enum Busy: Hashable {
         case session
+        case kioskSession
+        case kioskAdvance
         case logIn
         case signUp
         case logOut
@@ -51,6 +59,10 @@ final class AppStore {
     private(set) var busy: Set<Busy> = []
     private(set) var notice: Notice?
     private(set) var reviewingCampaignID: String?
+    private(set) var serverMode: ServerMode = .unknown
+    /// Set when a kiosk attempt is over, either because every level was
+    /// finished or because the session deadline passed.
+    private(set) var kioskSummary: String?
     /// The `/workflows/` page currently open over the app, if any.
     var presentedWorkflow: WorkflowLink?
 
@@ -117,6 +129,7 @@ final class AppStore {
 
     func launch() async {
         launching = true
+        await detectServerMode()
         await withBusy(.session) {
             do {
                 let session = try await api.openSession()
@@ -129,6 +142,90 @@ final class AppStore {
             }
         }
         launching = false
+    }
+
+    /// `GET /api/kiosk/status` exists only on an event station, so a 404 is the
+    /// signal that this is an ordinary deployment.
+    func detectServerMode() async {
+        do {
+            _ = try await api.kioskStatus()
+            serverMode = .kiosk
+        } catch let error as APIError where error.status == 404 {
+            serverMode = .standard
+        } catch {
+            // Unreachable or failing: assume the ordinary app so the player at
+            // least gets a sign-in form and the server field.
+            serverMode = .standard
+        }
+    }
+
+    var isKioskSession: Bool { serverMode == .kiosk && (player?.isKiosk ?? false) }
+
+    /// `POST /api/kiosk/session` registers the participant, starts the durable
+    /// session clock, and returns the first level already started.
+    func startKioskSession(displayName: String, email: String) async {
+        await withBusy(.kioskSession) {
+            do {
+                kioskSummary = nil
+                let session = try await api.startKioskSession(displayName: displayName, email: email)
+                await adopt(session)
+                Haptics.success()
+            } catch {
+                show(error: error)
+                Haptics.error()
+            }
+        }
+    }
+
+    /// `advanceKioskLevel` in app.js: the station never shows a catalog, it
+    /// just starts the next level until the campaign or the clock runs out.
+    func advanceKioskLevel() async {
+        guard !isBusy(.kioskAdvance) else { return }
+        await withBusy(.kioskAdvance) {
+            do {
+                let session = try await api.kioskNextLevel()
+                player = session.player
+                if let game = session.game {
+                    adopt(game: game, reviewing: nil)
+                } else {
+                    finishKioskSession("You completed every available level. Your final score is locked in.")
+                }
+            } catch let error as APIError where error.isUnauthorized {
+                finishKioskSession("Time expired. Only fully completed levels were scored.")
+            } catch {
+                show(error: error)
+            }
+        }
+    }
+
+    private func finishKioskSession(_ summary: String) {
+        let levels = player?.completedLevelCount ?? 0
+        let points = player?.lifetimePointsEarned ?? 0
+        kioskSummary = "\(summary) \(levels) level(s) completed for \(points) points."
+        currentGame = nil
+        completionTask?.cancel()
+        completionTask = nil
+        deadlineRefreshTask?.cancel()
+        deadlineRefreshTask = nil
+    }
+
+    /// The gold session pill hit zero. A level still in flight is closed by its
+    /// own Workflow timer, so poll for the timed-out view exactly as a hard
+    /// level limit does.
+    func kioskSessionExpired() {
+        guard isKioskSession else { return }
+        if let game = currentGame, !game.isTerminal {
+            levelDeadlinePassed()
+        }
+    }
+
+    /// "Next participant" — hand the station back to the queue.
+    func endKioskSession() async {
+        await withBusy(.continueLevel) {
+            kioskSummary = nil
+            do { try await api.logOut() } catch { /* the station moves on regardless */ }
+            reset()
+        }
     }
 
     /// Every endpoint answers 401 when a Temporal query fails, not only when the
@@ -199,6 +296,7 @@ final class AppStore {
         player = nil
         campaigns = []
         hasCatalog = false
+        kioskSummary = nil
         currentGame = nil
         letterOrder = []
         selectedIndexes = []
@@ -494,6 +592,10 @@ final class AppStore {
 
     private func beginCompletionRefresh() {
         guard completionTask == nil else { return }
+        if isKioskSession {
+            beginKioskCompletion()
+            return
+        }
         completionReady = false
         continueTitle = "Checking next level…"
         completionTask = Task { [weak self] in
@@ -508,6 +610,25 @@ final class AppStore {
                 self.show(error: error)
                 throw error
             }
+        }
+    }
+
+    /// `beginCompletionRefresh`'s kiosk branch: a timed-out level ends the
+    /// attempt, a finished one rolls straight into the next.
+    private func beginKioskCompletion() {
+        guard let game = currentGame else { return }
+        if game.didTimeOut {
+            completionReady = true
+            continueTitle = "Next participant"
+            kioskSummary = "Time expired. Only fully completed levels were scored."
+            return
+        }
+        completionReady = false
+        continueTitle = "Starting next level…"
+        completionTask = Task { [weak self] in
+            guard let self else { return }
+            await self.advanceKioskLevel()
+            self.completionTask = nil
         }
     }
 

@@ -12,6 +12,10 @@ struct ActiveGameRef: Codable, Hashable, Sendable {
 
 struct Player: Codable, Hashable, Sendable {
     var displayName: String
+    /// Set only by a kiosk session: the event station gives the Player Workflow
+    /// one absolute deadline for the whole attempt.
+    var kiosk: Bool?
+    var sessionEndsAt: Date?
     var currentStreak: Int
     var bestStreak: Int
     var points: Int
@@ -20,6 +24,8 @@ struct Player: Codable, Hashable, Sendable {
     var streakFreezeCost: Int
     var completedLevelCount: Int
     var activeGame: ActiveGameRef?
+
+    var isKiosk: Bool { kiosk ?? false }
 
     /// The `Name#8f3a1c2d` discriminator the API appends on registration.
     var shortName: String {
